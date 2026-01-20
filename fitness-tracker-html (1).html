@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fitness Tracker</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .slide-in { animation: slideIn 0.3s ease-out; }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .fade-in { animation: fadeIn 0.2s ease-out; }
+        
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+        }
+        
+        input:focus, textarea:focus {
+            outline: none;
+        }
+        
+        button:active {
+            transform: scale(0.95);
+        }
+        
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-gray-100">
+    <div id="root"></div>
+    
+    <script>
+        const e = React.createElement;
+        const { useState, useEffect, useRef } = React;
+
+        const SPLITS = {
+            'Push 1': ['Bench Press', 'Crossover', 'Skull Crusher', 'Tricep Extensions', 'Lateral Raises'],
+            'Pull': ['Lat Pulldowns', 'Cable Rows', 'Chest supported row', 'Curls', 'Hammers'],
+            'Hybrid': ['Leg extension', 'Hamstring curls', 'Leg raises', 'Cable crunches', 'Wrist curls', 'Cable reverse curl', 'Shoulder Press', 'Reverse fly'],
+            'Push 2': ['Incline Bench Press', 'Chest fly', 'Skull Crusher', 'Tricep Pushdowns', 'Lateral Raises'],
+            'Legs': ['Squats', 'Deadlifts', 'Leg extension', 'Hamstring curls', 'Cable crunches', 'Cable reverse curl'],
+            'Rest': []
+        };
+
+        const Icon = {
+            Plus: () => e('svg', {width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2}, 
+                e('line', {x1: 12, y1: 5, x2: 12, y2: 19}),
+                e('line', {x1: 5, y1: 12, x2: 19, y2: 12})
+            ),
+            X: () => e('svg', {width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2},
+                e('line', {x1: 18, y1: 6, x2: 6, y2: 18}),
+                e('line', {x1: 6, y1: 6, x2: 18, y2: 18})
+            ),
+            ChevronLeft: () => e('svg', {width: 24, height: 24, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2},
+                e('polyline', {points: '15 18 9 12 15 6'})
+            ),
+            ChevronRight: () => e('svg', {width: 24, height: 24, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2},
+                e('polyline', {points: '9 18 15 12 9 6'})
+            ),
+            Calendar: () => e('svg', {width: 24, height: 24, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2},
+                e('rect', {x: 3, y: 4, width: 18, height: 18, rx: 2, ry: 2}),
+                e('line', {x1: 16, y1: 2, x2: 16, y2: 6}),
+                e('line', {x1: 8, y1: 2, x2: 8, y2: 6}),
+                e('line', {x1: 3, y1: 10, x2: 21, y2: 10})
+            ),
+            TrendingUp: () => e('svg', {width: 24, height: 24, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2},
+                e('polyline', {points: '23 6 13.5 15.5 8.5 10.5 1 18'}),
+                e('polyline', {points: '17 6 23 6 23 12'})
+            ),
+            Download: () => e('svg', {width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2},
+                e('path', {d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'}),
+                e('polyline', {points: '7 10 12 15 17 10'}),
+                e('line', {x1: 12, y1: 15, x2: 12, y2: 3})
+            ),
+            Upload: () => e('svg', {width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2},
+                e('path', {d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'}),
+                e('polyline', {points: '17 8 12 3 7 8'}),
+                e('line', {x1: 12, y1: 3, x2: 12, y2: 15})
+            )
+        };
+
+        function LineChart({data, dataKey, color, label}) {
+            const canvasRef = useRef(null);
+            const chartRef = useRef(null);
+
+            useEffect(() => {
+                if (!canvasRef.current || !data.length) return;
+                
+                if (chartRef.current) {
+                    chartRef.current.destroy();
+                }
+
+                const ctx = canvasRef.current.getContext('2d');
+                chartRef.current = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: data.map(d => d.date),
+                        datasets: [{
+                            label: label,
+                            data: data.map(d => d[dataKey]),
+                            borderColor: color,
+                            backgroundColor: color + '20',
+                            tension: 0.3,
+                            borderWidth: 3,
+                            pointRadius: 4,
+                            pointBackgroundColor: color
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {display: false}
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: false,
+                                grid: {color: '#e5e7eb'}
+                            },
+                            x: {
+                                grid: {display: false}
+                            }
+                        }
+                    }
+                });
+
+                return () => {
+                    if (chartRef.current) {
+                        chartRef.current.destroy();
+                    }
+                };
+            }, [data, dataKey, color, label]);
+
+            return e('div', {style: {height: '200px'}},
+                e('canvas', {ref: canvasRef})
+            );
+        }
+
+        function FitnessTracker() {
+            const [view, setView] = useState('log');
+            const [showCal, setShowCal] = useState(false);
+            const [showMenu, setShowMenu] = useState(false);
+            const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+            const [calMonth, setCalMonth] = useState(new Date());
+            const [logs, setLogs] = useState({});
+            const [exHist, setExHist] = useState({});
+            const fileInputRef = useRef(null);
+
+            useEffect(() => {
+                const l = localStorage.getItem('fitness-logs');
+                const h = localStorage.getItem('exercise-history');
+                if (l) setLogs(JSON.parse(l));
+                if (h) setExHist(JSON.parse(h));
+            }, []);
+
+            const save = (nl, nh) => {
+                localStorage.setItem('fitness-logs', JSON.stringify(nl));
+                localStorage.setItem('exercise-history', JSON.stringify(nh));
+            };
+
+            const getLog = () => logs[date] || {split: '', bodyweight: '', exercises: [], food: [], notes: ''};
+
+            const updLog = (u) => {
+                const nl = {...logs, [date]: {...getLog(), ...u}};
+                setLogs(nl);
+                save(nl, exHist);
+            };
+
+            const setSplit = (s) => {
+                const exs = SPLITS[s].map(n => {
+                    const l = exHist[n]?.[0];
+                    return {name: n, weight: l?.weight || '', reps: l?.reps || '', note: l?.note || ''};
+                });
+                updLog({split: s, exercises: exs});
+            };
+
+            const updEx = (i, f, v) => {
+                const log = getLog();
+                const exs = [...log.exercises];
+                exs[i] = {...exs[i], [f]: v};
+                
+                const ex = exs[i];
+                if (ex.weight && ex.reps) {
+                    const nh = {...exHist};
+                    if (!nh[ex.name]) nh[ex.name] = [];
+                    
+                    const idx = nh[ex.name].findIndex(e => e.date === date);
+                    const ent = {date, weight: ex.weight, reps: ex.reps, note: ex.note || ''};
+                    
+                    if (idx >= 0) nh[ex.name][idx] = ent;
+                    else nh[ex.name].unshift(ent);
+                    
+                    nh[ex.name].sort((a, b) => new Date(b.date) - new Date(a.date));
+                    
+                    setExHist(nh);
+                    save({...logs, [date]: {...log, exercises: exs}}, nh);
+                } else {
+                    updLog({exercises: exs});
+                }
+            };
+
+            const addFood = () => updLog({food: [...getLog().food, {name: '', calories: '', protein: ''}]});
+
+            const updFood = (i, f, v) => {
+                const fd = [...getLog().food];
+                fd[i] = {...fd[i], [f]: v};
+                updLog({food: fd});
+            };
+
+            const delFood = (i) => updLog({food: getLog().food.filter((_, j) => j !== i)});
+
+            const getTotals = () => getLog().food.reduce((a, i) => ({
+                calories: a.calories + (parseInt(i.calories) || 0),
+                protein: a.protein + (parseInt(i.protein) || 0)
+            }), {calories: 0, protein: 0});
+
+            const chgDate = (d) => {
+                const dt = new Date(date);
+                dt.setDate(dt.getDate() + d);
+                setDate(dt.toISOString().split('T')[0]);
+            };
+
+            const selDate = (d) => {
+                setDate(d);
+                setShowCal(false);
+            };
+
+            const chgMonth = (m) => {
+                const d = new Date(calMonth);
+                d.setMonth(d.getMonth() + m);
+                setCalMonth(d);
+            };
+
+            const chgYear = (y) => {
+                const d = new Date(calMonth);
+                d.setFullYear(d.getFullYear() + y);
+                setCalMonth(d);
+            };
+
+            const getDays = (dt) => {
+                const y = dt.getFullYear();
+                const m = dt.getMonth();
+                const first = new Date(y, m, 1);
+                const last = new Date(y, m + 1, 0);
+                const days = [];
+                for (let i = 0; i < first.getDay(); i++) days.push(null);
+                for (let i = 1; i <= last.getDate(); i++) days.push(new Date(y, m, i));
+                return days;
+            };
+
+            const getWData = () => Object.entries(logs)
+                .filter(([_, l]) => l.bodyweight)
+                .map(([d, l]) => ({
+                    date: new Date(d).toLocaleDateString('en-US', {month: 'short', day: 'numeric'}),
+                    weight: parseFloat(l.bodyweight),
+                    fullDate: d
+                }))
+                .sort((a, b) => new Date(a.fullDate) - new Date(b.fullDate))
+                .slice(-30);
+
+            const getExData = (n) => (exHist[n] || [])
+                .slice(0, 20)
+                .map(ent => ({
+                    date: new Date(ent.date).toLocaleDateString('en-US', {month: 'short', day: 'numeric'}),
+                    weight: parseFloat(ent.weight),
+                    fullDate: ent.date
+                }))
+                .sort((a, b) => new Date(a.fullDate) - new Date(b.fullDate));
+
+            const exportData = () => {
+                const data = {
+                    logs,
+                    exerciseHistory: exHist,
+                    exportDate: new Date().toISOString()
+                };
+                const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `fitness-tracker-backup-${new Date().toISOString().split('T')[0]}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                setShowMenu(false);
+                alert('Data exported! Save this file somewhere safe.');
+            };
+
+            const importData = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    try {
+                        const data = JSON.parse(evt.target.result);
+                        if (data.logs && data.exerciseHistory) {
+                            setLogs(data.logs);
+                            setExHist(data.exerciseHistory);
+                            save(data.logs, data.exerciseHistory);
+                            setShowMenu(false);
+                            alert('Data imported successfully!');
+                        } else {
+                            alert('Invalid backup file');
+                        }
+                    } catch (err) {
+                        alert('Error reading file: ' + err.message);
+                    }
+                };
+                reader.readAsText(file);
+            };
+
+            const log = getLog();
+            const tot = getTotals();
+            const dObj = new Date(date);
+            const isToday = date === new Date().toISOString().split('T')[0];
+
+            // Data menu modal
+            if (showMenu) {
+                return e('div', {className: 'fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center fade-in'},
+                    e('div', {className: 'bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl slide-in'},
+                        e('h2', {className: 'text-xl font-bold mb-6 text-gray-800'}, 'Data Management'),
+                        e('div', {className: 'space-y-3'},
+                            e('button', {
+                                onClick: exportData,
+                                className: 'w-full flex items-center justify-center gap-3 px-4 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition'
+                            }, e(Icon.Download), 'Export Data'),
+                            e('button', {
+                                onClick: () => fileInputRef.current?.click(),
+                                className: 'w-full flex items-center justify-center gap-3 px-4 py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 transition'
+                            }, e(Icon.Upload), 'Import Data'),
+                            e('input', {
+                                ref: fileInputRef,
+                                type: 'file',
+                                accept: '.json',
+                                onChange: importData,
+                                className: 'hidden'
+                            })
+                        ),
+                        e('button', {
+                            onClick: () => setShowMenu(false),
+                            className: 'w-full mt-6 py-3 bg-gray-200 hover:bg-gray-300 rounded-lg font-semibold transition'
+                        }, 'Close')
+                    )
+                );
+            }
+
+            if (showCal) {
+                const days = getDays(calMonth);
+                const wkDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                
+                return e('div', {className: 'fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center fade-in'},
+                    e('div', {className: 'bg-white rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl slide-in'},
+                        e('div', {className: 'flex justify-between items-center mb-4'},
+                            e('button', {onClick: () => chgYear(-1), className: 'px-3 py-2 hover:bg-gray-100 rounded-lg transition font-semibold text-sm'}, '« Year'),
+                            e('div', {className: 'flex items-center gap-4'},
+                                e('button', {onClick: () => chgMonth(-1), className: 'p-2 hover:bg-gray-100 rounded-lg transition'}, e(Icon.ChevronLeft)),
+                                e('h2', {className: 'text-xl font-bold'},
+                                    calMonth.toLocaleDateString('en-US', {month: 'long', year: 'numeric'})
+                                ),
+                                e('button', {onClick: () => chgMonth(1), className: 'p-2 hover:bg-gray-100 rounded-lg transition'}, e(Icon.ChevronRight))
+                            ),
+                            e('button', {onClick: () => chgYear(1), className: 'px-3 py-2 hover:bg-gray-100 rounded-lg transition font-semibold text-sm'}, 'Year »')
+                        ),
+                        e('div', {className: 'calendar-grid mb-4'},
+                            wkDays.map(d => e('div', {key: d, className: 'text-center font-semibold text-sm text-gray-600 py-2'}, d))
+                        ),
+                        e('div', {className: 'calendar-grid'},
+                            days.map((d, i) => {
+                                if (!d) return e('div', {key: i});
+                                
+                                const ds = d.toISOString().split('T')[0];
+                                const hasData = logs[ds];
+                                const isSel = ds === date;
+                                
+                                return e('button', {
+                                    key: i,
+                                    onClick: () => selDate(ds),
+                                    className: `p-2 rounded-lg text-sm transition ${
+                                        isSel 
+                                            ? 'bg-blue-600 text-white font-bold shadow-lg' 
+                                            : hasData 
+                                                ? 'bg-blue-100 text-blue-800 font-semibold hover:bg-blue-200' 
+                                                : 'hover:bg-gray-100'
+                                    }`
+                                }, d.getDate());
+                            })
+                        ),
+                        e('button', {onClick: () => setShowCal(false), className: 'w-full mt-6 py-3 bg-gray-200 hover:bg-gray-300 rounded-lg font-semibold transition'}, 'Close')
+                    )
+                );
+            }
+
+            if (view === 'stats') {
+                const wData = getWData();
+                const exs = Object.keys(exHist).sort();
+                
+                return e('div', {className: 'min-h-screen pb-20'},
+                    e('div', {className: 'glass-effect border-b sticky top-0 z-10 shadow-sm'},
+                        e('div', {className: 'max-w-2xl mx-auto px-4 py-4'},
+                            e('div', {className: 'flex items-center justify-between'},
+                                e('h1', {className: 'text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent'}, 'Stats & Progress'),
+                                e('button', {
+                                    onClick: () => setShowMenu(true),
+                                    className: 'px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg font-semibold text-sm transition'
+                                }, 'Data')
+                            )
+                        )
+                    ),
+                    e('div', {className: 'max-w-2xl mx-auto px-4 py-6 space-y-6'},
+                        wData.length > 0 && e('div', {className: 'bg-white rounded-2xl p-6 shadow-lg slide-in'},
+                            e('h2', {className: 'font-semibold text-lg mb-4 text-gray-800'}, 'Bodyweight (Last 30 Days)'),
+                            e(LineChart, {data: wData, dataKey: 'weight', color: '#3b82f6', label: 'Weight (lbs)'})
+                        ),
+                        exs.map(ex => {
+                            const data = getExData(ex);
+                            if (!data.length) return null;
+                            
+                            return e('div', {key: ex, className: 'bg-white rounded-2xl p-6 shadow-lg slide-in'},
+                                e('h2', {className: 'font-semibold text-lg mb-4 text-gray-800'}, ex),
+                                e(LineChart, {data, dataKey: 'weight', color: '#10b981', label: 'Weight (lbs)'})
+                            );
+                        }),
+                        !exs.length && e('div', {className: 'text-center py-12 text-gray-500'},
+                            e('div', {className: 'mb-4 opacity-50'}, e(Icon.TrendingUp)),
+                            e('p', null, 'No workout data yet. Start logging!')
+                        )
+                    ),
+                    e('div', {className: 'fixed bottom-0 left-0 right-0 glass-effect border-t shadow-lg'},
+                        e('div', {className: 'max-w-2xl mx-auto px-4 py-3 flex justify-around'},
+                            e('button', {onClick: () => setView('log'), className: 'flex flex-col items-center text-gray-600 hover:text-blue-600 transition'},
+                                e(Icon.Calendar),
+                                e('span', {className: 'text-xs mt-1'}, 'Log')
+                            ),
+                            e('button', {onClick: () => setView('stats'), className: 'flex flex-col items-center text-blue-600'},
+                                e(Icon.TrendingUp),
+                                e('span', {className: 'text-xs mt-1'}, 'Stats')
+                            )
+                        )
+                    )
+                );
+            }
+
+            return e('div', {className: 'min-h-screen pb-20'},
+                e('div', {className: 'glass-effect border-b sticky top-0 z-10 shadow-sm'},
+                    e('div', {className: 'max-w-2xl mx-auto px-4 py-4'},
+                        e('div', {className: 'flex items-center justify-between mb-3'},
+                            e('button', {onClick: () => chgDate(-1), className: 'p-2 hover:bg-gray-100 rounded-lg transition'}, e(Icon.ChevronLeft)),
+                            e('button', {onClick: () => setShowCal(true), className: 'text-center hover:bg-gray-100 px-4 py-2 rounded-lg transition'},
+                                e('div', {className: 'text-lg font-semibold'},
+                                    dObj.toLocaleDateString('en-US', {weekday: 'long', month: 'long', day: 'numeric'})
+                                ),
+                                isToday && e('div', {className: 'text-sm text-blue-600 font-semibold'}, 'Today')
+                            ),
+                            e('button', {onClick: () => chgDate(1), className: 'p-2 hover:bg-gray-100 rounded-lg transition'}, e(Icon.ChevronRight))
+                        ),
+                        e('div', {className: 'mb-3'},
+                            e('input', {
+                                type: 'number',
+                                step: '0.1',
+                                placeholder: 'Bodyweight (lbs)',
+                                value: log.bodyweight,
+                                onChange: (ev) => updLog({bodyweight: ev.target.value}),
+                                className: 'w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 transition shadow-sm'
+                            })
+                        ),
+                        !log.split && e('div', {className: 'grid grid-cols-3 gap-2'},
+                            Object.keys(SPLITS).map(s =>
+                                e('button', {
+                                    key: s,
+                                    onClick: () => setSplit(s),
+                                    className: 'px-3 py-3 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-xl text-sm font-semibold shadow-md hover:shadow-lg transition transform hover:scale-105'
+                                }, s)
+                            )
+                        ),
+                        log.split && e('div', {className: 'flex items-center justify-between bg-gradient-to-r from-blue-50 to-purple-50 px-4 py-3 rounded-xl shadow-sm'},
+                            e('span', {className: 'font-bold text-blue-900'}, log.split),
+                            e('button', {
+                                onClick: () => updLog({split: '', exercises: []}),
+                                className: 'text-red-600 text-sm font-semibold hover:text-red-700 transition'
+                            }, 'Change')
+                        )
+                    )
+                ),
+                e('div', {className: 'max-w-2xl mx-auto px-4 py-4 space-y-6'},
+                    log.split && log.exercises.length > 0 && e('div', {className: 'bg-white rounded-2xl p-6 shadow-lg slide-in'},
+                        e('h2', {className: 'font-bold text-lg mb-4 text-gray-800'}, 'Workout'),
+                        e('div', {className: 'space-y-4'},
+                            log.exercises.map((ex, i) =>
+                                e('div', {key: i, className: 'border-b border-gray-100 pb-4 last:border-b-0'},
+                                    e('div', {className: 'font-semibold mb-2 text-gray-700'}, ex.name),
+                                    e('div', {className: 'grid grid-cols-3 gap-2'},
+                                        e('input', {
+                                            type: 'number',
+                                            step: '0.5',
+                                            placeholder: 'Weight',
+                                            value: ex.weight,
+                                            onChange: (ev) => updEx(i, 'weight', ev.target.value),
+                                            className: 'px-3 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 transition text-sm'
+                                        }),
+                                        e('input', {
+                                            type: 'number',
+                                            placeholder: 'Reps',
+                                            value: ex.reps,
+                                            onChange: (ev) => updEx(i, 'reps', ev.target.value),
+                                            className: 'px-3 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 transition text-sm'
+                                        }),
+                                        e('input', {
+                                            type: 'text',
+                                            placeholder: 'Note',
+                                            value: ex.note,
+                                            onChange: (ev) => updEx(i, 'note', ev.target.value),
+                                            className: 'px-3 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 transition text-sm'
+                                        })
+                                    )
+                                )
+                            )
+                        )
+                    ),
+                    e('div', {className: 'bg-white rounded-2xl p-6 shadow-lg slide-in'},
+                        e('div', {className: 'flex items-center justify-between mb-4'},
+                            e('h2', {className: 'font-bold text-lg text-gray-800'}, 'Food'),
+                            e('button', {onClick: addFood, className: 'text-blue-600 hover:text-blue-700 bg-blue-50 p-2 rounded-lg transition'}, e(Icon.Plus))
+                        ),
+                        log.food.length > 0 && e(React.Fragment, null,
+                            e('div', {className: 'space-y-2 mb-4'},
+                                log.food.map((f, i) =>
+                                    e('div', {key: i, className: 'flex gap-2 items-center'},
+                                        e('input', {
+                                            type: 'text',
+                                            placeholder: 'Food',
+                                            value: f.name,
+                                            onChange: (ev) => updFood(i, 'name', ev.target.value),
+                                            className: 'flex-1 px-3 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 transition text-sm'
+                                        }),
+                                        e('input', {
+                                            type: 'number',
+                                            placeholder: 'Cal',
+                                            value: f.calories,
+                                            onChange: (ev) => updFood(i, 'calories', ev.target.value),
+                                            className: 'w-20 px-3 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 transition text-sm'
+                                        }),
+                                        e('input', {
+                                            type: 'number',
+                                            placeholder: 'Pro',
+                                            value: f.protein,
+                                            onChange: (ev) => updFood(i, 'protein', ev.target.value),
+                                            className: 'w-20 px-3 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 transition text-sm'
+                                        }),
+                                        e('button', {onClick: () => delFood(i), className: 'text-red-600 hover:text-red-700 p-1 transition'}, e(Icon.X))
+                                    )
+                                )
+                            ),
+                            e('div', {className: 'pt-4 border-t border-gray-200 font-bold text-sm bg-gradient-to-r from-blue-50 to-purple-50 px-4 py-3 rounded-lg'},
+                                `Total: ${tot.calories} cal, ${tot.protein}g protein`
+                            )
+                        ),
+                        !log.food.length && e('p', {className: 'text-gray-400 text-sm'}, 'No food logged yet')
+                    ),
+                    e('div', {className: 'bg-white rounded-2xl p-6 shadow-lg slide-in'},
+                        e('h2', {className: 'font-bold text-lg mb-3 text-gray-800'}, 'Notes'),
+                        e('textarea', {
+                            placeholder: 'Add notes (starting cut/bulk, how you felt, etc.)',
+                            value: log.notes,
+                            onChange: (ev) => updLog({notes: ev.target.value}),
+                            className: 'w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 transition text-sm shadow-sm',
+                            rows: '3'
+                        })
+                    )
+                ),
+                e('div', {className: 'fixed bottom-0 left-0 right-0 glass-effect border-t shadow-lg'},
+                    e('div', {className: 'max-w-2xl mx-auto px-4 py-3 flex justify-around'},
+                        e('button', {onClick: () => setView('log'), className: 'flex flex-col items-center text-blue-600'},
+                            e(Icon.Calendar),
+                            e('span', {className: 'text-xs mt-1'}, 'Log')
+                        ),
+                        e('button', {onClick: () => setView('stats'), className: 'flex flex-col items-center text-gray-600 hover:text-blue-600 transition'},
+                            e(Icon.TrendingUp),
+                            e('span', {className: 'text-xs mt-1'}, 'Stats')
+                        )
+                    )
+                )
+            );
+        }
+
+        ReactDOM.render(e(FitnessTracker), document.getElementById('root'));
+    </script>
+</body>
+</html>
